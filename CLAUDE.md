@@ -125,4 +125,5 @@ Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
 
 - **Sprint 1 POC Tick — COMPLETED 2026-02-21**: parser + SQLite storage working. Frank Ssebaggala (EID-1001), confidence 1.00.
 - **Sprint 2 Local Operations Tick — COMPLETED 2026-02-21**: `ingest_folder.py`, `export_employees.py`, FastAPI (health/employees/ingest/export), Railway config (Procfile, requirements.txt, config.py, auth.py, .env.example).
+- **Sprint 2B Appsmith Portal Bootstrap — COMPLETED 2026-02-22**: HR Portal live at `https://app.appsmith.com/app/hr-portal/page1-699a032d2267980abdf9034d`. 4 queries wired (GetEmployees/GetEmployee/IngestPDF/ExportCSV), EmployeeTable + FilePicker + Upload Contract + Download CSV buttons. Setup guide: `appsmith/hr-portal-setup.md`.
 - **Next**: Sprint 3 — MVP (Prefect, three document types, compliance rules, Appsmith exception queue)
