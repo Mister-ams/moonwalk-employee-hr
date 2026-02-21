@@ -90,10 +90,13 @@ sqlite3 employees.db "SELECT employee_id, full_name, job_title, contract_expiry_
 
 ## Railway Deployment
 
+**Live URL**: `https://moonwalk-employee-hr-production.up.railway.app`
+**Project**: `moonwalk-employee-hr` on Railway (mister-ams's Projects)
+
 ```
-Railway env vars required:
-  HR_API_KEY     — API key for the service (generate with secrets.token_urlsafe(32))
-  HR_DB_PATH     — Set to /data/employees.db if a volume is mounted; omit for ephemeral
+Railway env vars:
+  HR_API_KEY     — set (see .env.example for key storage)
+  HR_DB_PATH     — not set; DB is ephemeral without a mounted volume
 
 Build: nixpacks picks up requirements.txt automatically
 Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
