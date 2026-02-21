@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 try:
     from dotenv import load_dotenv
@@ -42,3 +43,8 @@ app.include_router(health.router)
 app.include_router(employees.router, prefix="/employees")
 app.include_router(ingest.router, prefix="/ingest")
 app.include_router(export.router, prefix="/export/csv")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
