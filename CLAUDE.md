@@ -4,7 +4,7 @@ Project-specific instructions. Global standards: `~/CLAUDE.md`.
 
 ## Project
 
-Auto-populating employee database from structured employment documents (PDF contracts, compensation sheets, benefits forms) uploaded to OneDrive. Extracts fields, stores in Postgres (SQLite for local PoC), surfaces compliance alerts via Appsmith portal with RBAC.
+Extract structured employee data from UAE MOHRE labour contract PDFs into a locally operated SQLite database, exported to CSV/Excel for daily use. Priority is clearing the PDF extraction technical hurdle and producing a usable employee roster locally. Cloud-native infrastructure (OneDrive sync, Postgres, FastAPI, RBAC, Appsmith) is a future phase.
 
 **GitHub**: `Mister-ams/moonwalk-employee-hr`
 **Roadmap**: `PythonScript/roadmap-employee-hr.md` in `Mister-ams/moonwalk-analytics`
@@ -15,23 +15,43 @@ Auto-populating employee database from structured employment documents (PDF cont
 PDF contracts (drop file locally for PoC; OneDrive /HR/Contracts/ for Sprint 3+)
         |
         v
-ingest_contract.py     <- CLI: python ingest_contract.py "path/to/pdf"
+ingest_contract.py         <- CLI: single PDF
+ingest_folder.py           <- CLI: batch folder
     |
-    +-> parse_contract.py   <- pdfplumber + regex, confidence scoring
+    +-> parse_contract.py  <- pdfplumber + regex, confidence scoring
     |
-    +-> db.py               <- SQLite (local PoC); Postgres in Sprint 2+
+    +-> db.py              <- SQLite storage (Postgres in Sprint 3+)
         |
         v
-employees.db           <- local SQLite (gitignored)
+employees.db               <- local SQLite (gitignored)
+        |
+        v
+export_employees.py        <- CSV export with days_until_expiry + expiry_flag
+
+FastAPI (main.py)
+    /health               <- GET — health check (no auth)
+    /employees            <- GET — list all employees
+    /employees/{id}       <- GET — single employee
+    /ingest               <- POST — upload PDF, parse + store
+    /export/csv           <- GET — stream employees.csv
 ```
 
 ### Module Roles
 
 | File | Purpose |
 |------|---------|
+| `config.py` | Env-var based `DB_PATH` (`HR_DB_PATH`), `API_KEY` (`HR_API_KEY`), `CONFIDENCE_THRESHOLD`, `EXPIRY_WARNING_DAYS` |
+| `auth.py` | FastAPI `X-API-Key` dependency — reads `HR_API_KEY` at request time, fail-closed |
+| `main.py` | FastAPI entrypoint — lifespan (`init_db`), CORS, route registration |
+| `routers/health.py` | `GET /health` |
+| `routers/employees.py` | `GET /employees`, `GET /employees/{id}` |
+| `routers/ingest.py` | `POST /ingest` — multipart PDF upload, parse, upsert; 422 on low confidence with per-field scores |
+| `routers/export.py` | `GET /export/csv` — streams CSV with `days_until_expiry` + `expiry_flag` columns |
 | `parse_contract.py` | MOHRE contract PDF parser — 10 fields, per-field confidence scoring, bilingual layout aware |
 | `db.py` | SQLite storage — EID-10xx auto-assign, idempotent upsert on `passport_number` / `mohre_transaction_no` |
-| `ingest_contract.py` | CLI — parse + store, exits non-zero and prints failing fields when confidence < 0.95 |
+| `ingest_contract.py` | CLI — single PDF parse + store, exits non-zero below confidence threshold |
+| `ingest_folder.py` | CLI — batch folder ingest, idempotent, writes `exceptions.csv` for low-confidence records |
+| `export_employees.py` | CLI — SQLite → `employees.csv` with `days_until_expiry` + `expiry_flag` |
 
 ### Employee ID Standard
 
@@ -50,12 +70,36 @@ Deduplication key: `passport_number` OR `mohre_transaction_no` (whichever matche
 ## Commands
 
 ```bash
-# Ingest a contract PDF
+# Run the API (local dev)
+uvicorn main:app --reload --port 8001
+
+# Ingest a single contract PDF
 python ingest_contract.py "path/to/contract.pdf"
+
+# Ingest all PDFs in a folder
+python ingest_folder.py "path/to/contracts/"
+python ingest_folder.py "path/to/contracts/" --exceptions-out "path/to/exceptions.csv"
+
+# Export roster to CSV
+python export_employees.py
+python export_employees.py --out "path/to/employees.csv"
 
 # Query the local DB
 sqlite3 employees.db "SELECT employee_id, full_name, job_title, contract_expiry_date FROM employees"
 ```
+
+## Railway Deployment
+
+```
+Railway env vars required:
+  HR_API_KEY     — API key for the service (generate with secrets.token_urlsafe(32))
+  HR_DB_PATH     — Set to /data/employees.db if a volume is mounted; omit for ephemeral
+
+Build: nixpacks picks up requirements.txt automatically
+Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+**SQLite + Railway**: Without a mounted volume, the DB resets on each deploy. For persistent storage, mount a volume at `/data` and set `HR_DB_PATH=/data/employees.db`. Postgres migration is Sprint 3.
 
 ## Critical Gotchas
 
@@ -76,5 +120,6 @@ sqlite3 employees.db "SELECT employee_id, full_name, job_title, contract_expiry_
 
 ## Current State
 
-- **Sprint 1 POC Tick — COMPLETED 2026-02-21**: parser + SQLite storage working against real MOHRE PDF. Frank Ssebaggala ingested as EID-1001, confidence 1.00.
-- **Next**: Sprint 2 — schema validation tests, idempotency tests, RBAC baseline (FastAPI + Postgres)
+- **Sprint 1 POC Tick — COMPLETED 2026-02-21**: parser + SQLite storage working. Frank Ssebaggala (EID-1001), confidence 1.00.
+- **Sprint 2 Local Operations Tick — COMPLETED 2026-02-21**: `ingest_folder.py`, `export_employees.py`, FastAPI (health/employees/ingest/export), Railway config (Procfile, requirements.txt, config.py, auth.py, .env.example).
+- **Next**: Sprint 3 — MVP (Prefect, three document types, compliance rules, Appsmith exception queue)

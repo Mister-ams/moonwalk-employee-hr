@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "employees.db"
+from config import DB_PATH
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS employees (
@@ -45,7 +45,9 @@ def _next_eid(conn: sqlite3.Connection) -> str:
     return f"EID-10{seq:02d}"  # EID-1001, EID-1002, ...
 
 
-def upsert_employee(fields: dict, source_file: str, confidence: float, db_path: Path = DB_PATH) -> str:
+def upsert_employee(
+    fields: dict, source_file: str, confidence: float, db_path: Path = DB_PATH
+) -> str:
     """
     Insert or update an employee record.
     Deduplication key: passport_number or mohre_transaction_no.

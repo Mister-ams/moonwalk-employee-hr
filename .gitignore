@@ -1,3 +1,8 @@
 employees.db
 debug_text.txt
 __pycache__/
+*.pyc
+*.pyo
+.env
+exceptions.csv
+employees.csv
