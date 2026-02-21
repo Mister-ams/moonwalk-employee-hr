@@ -3,9 +3,12 @@
 import os
 from pathlib import Path
 
-# Database path — override with HR_DB_PATH env var.
-# On Railway, set HR_DB_PATH to a mounted volume path (e.g. /data/employees.db)
-# to persist data across deploys. Without a volume the SQLite DB is ephemeral.
+# Postgres connection URL — Railway injects this automatically via the
+# ${{Postgres.DATABASE_URL}} reference variable set on the service.
+# For local dev, set DATABASE_URL in .env (see .env.example).
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+# Legacy SQLite path — kept for local CLI fallback when DATABASE_URL is not set.
 _default_db = Path(__file__).parent / "employees.db"
 DB_PATH = Path(os.environ.get("HR_DB_PATH", str(_default_db)))
 

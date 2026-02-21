@@ -12,12 +12,12 @@ Output columns:
 """
 
 import csv
-import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
 
-from config import DB_PATH, EXPIRY_WARNING_DAYS
+from config import EXPIRY_WARNING_DAYS
+from db import fetch_all_employees
 
 DEFAULT_OUT = "employees.csv"
 
@@ -44,28 +44,19 @@ COLUMNS = [
 
 def export_employees(out: Path = Path(DEFAULT_OUT)) -> int:
     """Export all employees to *out*. Returns the number of rows written."""
-    if not DB_PATH.exists():
-        print(f"Database not found: {DB_PATH}")
-        return 0
-
     today = date.today()
-
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM employees ORDER BY employee_id").fetchall()
+    rows = fetch_all_employees()
 
     count = 0
     with open(out, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
         writer.writeheader()
 
-        for row in rows:
-            r = dict(row)
+        for r in rows:
             expiry_str = r.get("contract_expiry_date")
             if expiry_str:
                 try:
-                    expiry = date.fromisoformat(expiry_str)
-                    days = (expiry - today).days
+                    days = (date.fromisoformat(str(expiry_str)) - today).days
                 except ValueError:
                     days = None
             else:
@@ -73,8 +64,6 @@ def export_employees(out: Path = Path(DEFAULT_OUT)) -> int:
 
             r["days_until_expiry"] = days
             r["expiry_flag"] = (days is not None) and (days < EXPIRY_WARNING_DAYS)
-
-            # Write only the declared columns (extras from DB are ignored)
             writer.writerow({col: r.get(col) for col in COLUMNS})
             count += 1
 
