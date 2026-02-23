@@ -261,7 +261,7 @@ def _ocr_page_fitz(pdf_path: Path, page_index: int) -> str:
                     kwargs["tessdata"] = tessdata
                 tp = page.get_textpage_ocr(**kwargs)
                 return page.get_text(textpage=tp)
-            except RuntimeError:
+            except Exception:
                 continue
         return ""
     finally:
