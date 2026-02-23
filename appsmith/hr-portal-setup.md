@@ -55,10 +55,30 @@ Save & Test → should return `200 OK` against `/health`.
 
 ### `IngestPDF`
 - Method: POST
-- Path: `/ingest`
-- Body type: FORM_DATA
-- Key: `file`, Value: `{{FilePicker.files[0]}}`, Type: File
-- On success: `GetEmployees.run()`
+- Path: `/ingest/base64`
+- Body type: JSON
+- Body:
+  ```json
+  {
+    "filename": "{{FilePicker1.files[0].name}}",
+    "data": "{{FilePicker1.files[0].data}}"
+  }
+  ```
+- On success:
+  ```js
+  showAlert("Uploaded: " + this.data.employee_id, "success");
+  GetEmployees.run();
+  ```
+- On error:
+  ```js
+  showAlert("Upload failed: " + this.error.message, "error");
+  ```
+
+**Why base64 not multipart**: Appsmith's Spring-based API proxy throws
+`WebClientRequestException: Input byte array has incorrect ending byte` when proxying
+multipart/form-data for certain PDF binary content (PE-RST-5000). The `/ingest/base64`
+endpoint accepts `{"filename": "...", "data": "<base64>"}` instead, which Appsmith
+handles reliably via `FilePicker1.files[0].data` (base64 string natively).
 
 ---
 
