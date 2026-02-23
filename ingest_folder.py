@@ -84,9 +84,9 @@ def ingest_folder(folder: Path, partials_out: Path) -> dict:
 
         fields = result["fields"]
         scores = result["field_scores"]
-        confidence = result["confidence"]
+        min_field_score = result["min_field_score"]
 
-        employee_id = upsert_employee(fields, str(pdf), confidence, scores)
+        employee_id = upsert_employee(fields, str(pdf), min_field_score, scores)
 
         needs_review = [
             f for f, s in scores.items() if f != "insurance_status" and s < 0.95
@@ -98,7 +98,7 @@ def ingest_folder(folder: Path, partials_out: Path) -> dict:
             row = {
                 "employee_id": employee_id,
                 "source_file": pdf.name,
-                "confidence": confidence,
+                "confidence": min_field_score,
                 "error": "",
             }
             for f in fields:

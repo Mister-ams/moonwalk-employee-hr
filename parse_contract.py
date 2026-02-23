@@ -634,7 +634,7 @@ def parse_contract(file_path: Path) -> dict:
     return {
         "fields": fields,
         "field_scores": scores,
-        "confidence": confidence,
+        "min_field_score": confidence,
         "ocr_used": ocr_used,
         "doc_type": doc_type,
     }

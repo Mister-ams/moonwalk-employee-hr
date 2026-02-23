@@ -19,11 +19,16 @@ _REVIEW_ACTIONS = {
 }
 
 
-def _build_needs_review(scores: dict) -> list[dict]:
-    """Return fields that require human attention (score < 0.95, excluding insurance_status)."""
+def _build_needs_review(scores: dict, fields: dict) -> list[dict]:
+    """Return fields that require human attention (score < 0.95, excluding insurance_status).
+
+    Includes the current extracted value so the reviewer can decide whether to
+    correct, confirm, or enter the value manually.
+    """
     return [
         {
             "field": field,
+            "current_value": fields.get(field),
             "score": score,
             "action": _REVIEW_ACTIONS.get(score, "spot_check"),
         }
@@ -45,11 +50,11 @@ def _parse_and_store(contents: bytes, filename: str) -> dict:
 
     fields = result["fields"]
     scores = result["field_scores"]
-    confidence = result["confidence"]
+    min_field_score = result["min_field_score"]
     doc_type = result["doc_type"]
 
-    employee_id = upsert_employee(fields, filename, confidence, scores, doc_type)
-    needs_review = _build_needs_review(scores)
+    employee_id = upsert_employee(fields, filename, min_field_score, scores, doc_type)
+    needs_review = _build_needs_review(scores, fields)
 
     warning = None
     if doc_type == "job_offer":
@@ -63,7 +68,8 @@ def _parse_and_store(contents: bytes, filename: str) -> dict:
         "employee_id": employee_id,
         "source_doc_type": doc_type,
         "warning": warning,
-        "confidence": confidence,
+        "min_field_score": min_field_score,
+        "field_scores": scores,
         "needs_review": needs_review,
         **fields,
     }

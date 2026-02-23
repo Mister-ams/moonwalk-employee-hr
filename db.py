@@ -76,7 +76,7 @@ def _next_eid(cur) -> str:
 def upsert_employee(
     fields: dict,
     source_file: str,
-    confidence: float,
+    min_field_score: float,
     field_scores: dict,
     doc_type: str = "unknown",
 ) -> str:
@@ -118,7 +118,7 @@ def upsert_employee(
                         fields.get("contract_expiry_date"),
                         fields.get("insurance_status"),
                         source_file,
-                        confidence,
+                        min_field_score,
                         scores_json,
                         doc_type,
                         now,
@@ -148,7 +148,7 @@ def upsert_employee(
                         fields.get("insurance_status"),
                         fields.get("mohre_transaction_no"),
                         source_file,
-                        confidence,
+                        min_field_score,
                         scores_json,
                         doc_type,
                         now,

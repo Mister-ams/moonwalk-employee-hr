@@ -52,13 +52,15 @@ def main():
 
     fields = result["fields"]
     scores = result["field_scores"]
-    confidence = result["confidence"]
+    min_field_score = result["min_field_score"]
     ocr_used = result["ocr_used"]
     doc_type = result["doc_type"]
 
     needs_review = _print_review_summary(fields, scores)
 
-    employee_id = upsert_employee(fields, str(pdf_path), confidence, scores, doc_type)
+    employee_id = upsert_employee(
+        fields, str(pdf_path), min_field_score, scores, doc_type
+    )
 
     print(f"\nStored: {employee_id}  {fields.get('full_name', '(unknown)')}")
     if ocr_used:
