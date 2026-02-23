@@ -1,25 +1,24 @@
 """
 Batch-ingest all contract PDFs in a folder.
+Always stores every record — partial extractions are flagged for review, not rejected.
+A partial-records CSV is written for any record where any field scored below 0.95.
 
 Usage:
     python ingest_folder.py "path/to/contracts/"
-    python ingest_folder.py "path/to/contracts/" --exceptions-out "path/to/exceptions.csv"
-
-Idempotent: files whose passport_number or mohre_transaction_no already exists in the
-database are updated (not duplicated). Confidence failures are written to exceptions.csv.
+    python ingest_folder.py "path/to/contracts/" --partials-out "path/to/partials.csv"
 """
 
 import csv
 import sys
 from pathlib import Path
 
-from config import CONFIDENCE_THRESHOLD
 from db import upsert_employee
 from parse_contract import parse_contract
 
-DEFAULT_EXCEPTIONS_FILE = "exceptions.csv"
+DEFAULT_PARTIALS_FILE = "partial_records.csv"
 
-EXCEPTION_FIELDS = [
+_PARTIAL_FIELDS = [
+    "employee_id",
     "source_file",
     "confidence",
     "full_name",
@@ -31,9 +30,7 @@ EXCEPTION_FIELDS = [
     "total_salary",
     "contract_start_date",
     "contract_expiry_date",
-    "insurance_status",
     "mohre_transaction_no",
-    # per-field scores
     "score_full_name",
     "score_nationality",
     "score_date_of_birth",
@@ -48,21 +45,21 @@ EXCEPTION_FIELDS = [
 ]
 
 
-def ingest_folder(folder: Path, exceptions_out: Path) -> dict:
+def ingest_folder(folder: Path, partials_out: Path) -> dict:
     """
     Process all PDFs in *folder*. Returns summary counts.
-    Low-confidence records are written to *exceptions_out* CSV.
+    All records are stored. Partial records (any field < 0.95) are written to *partials_out*.
     """
     pdfs = sorted(folder.glob("*.pdf"))
     if not pdfs:
         print(f"No PDF files found in: {folder}")
-        return {"total": 0, "stored": 0, "skipped": 0, "failed": 0}
+        return {"total": 0, "stored": 0, "partial": 0, "failed": 0}
 
     total = len(pdfs)
     stored = 0
-    skipped = 0
+    partial = 0
     failed = 0
-    exceptions = []
+    partial_rows = []
 
     for pdf in pdfs:
         print(f"Processing: {pdf.name}", end="  ", flush=True)
@@ -71,76 +68,79 @@ def ingest_folder(folder: Path, exceptions_out: Path) -> dict:
         except Exception as exc:
             print("ERROR")
             failed += 1
-            exceptions.append(
+            partial_rows.append(
                 {
                     "source_file": pdf.name,
                     "confidence": 0.0,
                     "error": str(exc),
                     **{
                         f: None
-                        for f in EXCEPTION_FIELDS
+                        for f in _PARTIAL_FIELDS
                         if f not in ("source_file", "confidence", "error")
                     },
                 }
             )
             continue
 
-        confidence = result["confidence"]
         fields = result["fields"]
         scores = result["field_scores"]
+        confidence = result["confidence"]
 
-        if confidence < CONFIDENCE_THRESHOLD:
-            print(f"LOW CONFIDENCE ({confidence:.2f})")
-            failed += 1
+        employee_id = upsert_employee(fields, str(pdf), confidence, scores)
+
+        needs_review = [
+            f for f, s in scores.items() if f != "insurance_status" and s < 0.95
+        ]
+
+        if needs_review:
+            tag = f"PARTIAL ({len(needs_review)} field(s) need review)"
+            partial += 1
             row = {
+                "employee_id": employee_id,
                 "source_file": pdf.name,
                 "confidence": confidence,
                 "error": "",
             }
             for f in fields:
                 row[f] = fields[f]
-            for f in scores:
-                row[f"score_{f}"] = scores[f]
-            # Fill missing columns
-            for col in EXCEPTION_FIELDS:
+            for f, s in scores.items():
+                row[f"score_{f}"] = s
+            for col in _PARTIAL_FIELDS:
                 if col not in row:
                     row[col] = None
-            exceptions.append(row)
-            continue
+            partial_rows.append(row)
+        else:
+            tag = "OK"
 
-        employee_id = upsert_employee(fields, str(pdf), confidence)
-        # Distinguish new inserts from updates by checking if EID existed before
-        print(f"OK -> {employee_id}")
+        print(f"{tag} -> {employee_id}")
         stored += 1
 
-    # Write exceptions CSV
-    if exceptions:
-        with open(exceptions_out, "w", newline="", encoding="utf-8") as f:
+    if partial_rows:
+        with open(partials_out, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(
-                f, fieldnames=EXCEPTION_FIELDS, extrasaction="ignore"
+                f, fieldnames=_PARTIAL_FIELDS, extrasaction="ignore"
             )
             writer.writeheader()
-            writer.writerows(exceptions)
-        print(f"\nExceptions written to: {exceptions_out}")
-    else:
-        skipped = 0  # No exceptions at all
+            writer.writerows(partial_rows)
+        print(f"\nPartial records written to: {partials_out}")
 
-    return {"total": total, "stored": stored, "skipped": skipped, "failed": failed}
+    return {"total": total, "stored": stored, "partial": partial, "failed": failed}
 
 
 def _print_summary(summary: dict) -> None:
     print()
-    print("-" * 40)
-    print(f"{'Total PDFs processed':<25} {summary['total']}")
-    print(f"{'Stored / updated':<25} {summary['stored']}")
-    print(f"{'Failed (low conf/error)':<25} {summary['failed']}")
-    print("-" * 40)
+    print("-" * 45)
+    print(f"{'Total PDFs processed':<28} {summary['total']}")
+    print(f"{'Stored / updated':<28} {summary['stored']}")
+    print(f"{'  of which partial (needs review)':<28} {summary['partial']}")
+    print(f"{'Failed (parse error)':<28} {summary['failed']}")
+    print("-" * 45)
 
 
 def main():
     args = sys.argv[1:]
     if not args:
-        print("Usage: python ingest_folder.py <folder> [--exceptions-out <path>]")
+        print("Usage: python ingest_folder.py <folder> [--partials-out <path>]")
         sys.exit(1)
 
     folder = Path(args[0])
@@ -148,13 +148,18 @@ def main():
         print(f"Not a directory: {folder}")
         sys.exit(1)
 
-    exceptions_out = Path(DEFAULT_EXCEPTIONS_FILE)
-    if "--exceptions-out" in args:
+    partials_out = Path(DEFAULT_PARTIALS_FILE)
+    if "--partials-out" in args:
+        idx = args.index("--partials-out")
+        if idx + 1 < len(args):
+            partials_out = Path(args[idx + 1])
+    # Backward-compat alias
+    elif "--exceptions-out" in args:
         idx = args.index("--exceptions-out")
         if idx + 1 < len(args):
-            exceptions_out = Path(args[idx + 1])
+            partials_out = Path(args[idx + 1])
 
-    summary = ingest_folder(folder, exceptions_out)
+    summary = ingest_folder(folder, partials_out)
     _print_summary(summary)
 
     if summary["failed"] > 0:

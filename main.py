@@ -17,7 +17,7 @@ except ImportError:
 
 from config import API_KEY
 from db import init_db
-from routers import employees, export, health, ingest
+from routers import employees, exceptions, export, health, ingest
 
 logger = logging.getLogger("hr.startup")
 
@@ -43,6 +43,7 @@ app.include_router(health.router)
 app.include_router(employees.router, prefix="/employees")
 app.include_router(ingest.router, prefix="/ingest")
 app.include_router(export.router, prefix="/export/csv")
+app.include_router(exceptions.router, prefix="/exceptions")
 
 
 @app.get("/", include_in_schema=False)

@@ -8,15 +8,32 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from auth import require_api_key
-from config import CONFIDENCE_THRESHOLD
 from db import upsert_employee
 from parse_contract import parse_contract
 
 router = APIRouter()
 
+_REVIEW_ACTIONS = {
+    0.0: "enter_manually",  # regex and LLM both missed — human must fill in
+    0.85: "spot_check",  # LLM extracted — likely correct, verify before relying on it
+}
+
+
+def _build_needs_review(scores: dict) -> list[dict]:
+    """Return fields that require human attention (score < 0.95, excluding insurance_status)."""
+    return [
+        {
+            "field": field,
+            "score": score,
+            "action": _REVIEW_ACTIONS.get(score, "spot_check"),
+        }
+        for field, score in scores.items()
+        if field != "insurance_status" and score < 0.95
+    ]
+
 
 def _parse_and_store(contents: bytes, filename: str) -> dict:
-    """Write contents to a temp file, parse, validate confidence, upsert."""
+    """Write contents to a temp file, parse, and always upsert regardless of confidence."""
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp.write(contents)
         tmp_path = Path(tmp.name)
@@ -26,23 +43,30 @@ def _parse_and_store(contents: bytes, filename: str) -> dict:
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    confidence = result["confidence"]
     fields = result["fields"]
     scores = result["field_scores"]
+    confidence = result["confidence"]
+    doc_type = result["doc_type"]
 
-    if confidence < CONFIDENCE_THRESHOLD:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": "Confidence below threshold — routed to exception queue",
-                "confidence": confidence,
-                "threshold": CONFIDENCE_THRESHOLD,
-                "field_scores": scores,
-            },
+    employee_id = upsert_employee(fields, filename, confidence, scores, doc_type)
+    needs_review = _build_needs_review(scores)
+
+    warning = None
+    if doc_type == "job_offer":
+        warning = (
+            "Document is a Job Offer, not a signed Employment Contract. "
+            "Contract dates are derived from signing date + duration. "
+            "Upload the Employment Contract (MB-series) when available to confirm dates."
         )
 
-    employee_id = upsert_employee(fields, filename, confidence)
-    return {"employee_id": employee_id, "confidence": confidence, **fields}
+    return {
+        "employee_id": employee_id,
+        "source_doc_type": doc_type,
+        "warning": warning,
+        "confidence": confidence,
+        "needs_review": needs_review,
+        **fields,
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["ingest"])

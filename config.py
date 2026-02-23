@@ -15,7 +15,11 @@ DB_PATH = Path(os.environ.get("HR_DB_PATH", str(_default_db)))
 # API key — must be set in production; empty string = reject all requests.
 API_KEY = os.environ.get("HR_API_KEY", "")
 
-# Confidence threshold below which a parse is routed to the exception queue.
+# OpenAI API key — used by the LLM fallback in parse_contract.py.
+# If unset, LLM fallback is skipped and missed fields go straight to human review.
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Confidence threshold for flagging fields as needing human review (display only — no records rejected).
 CONFIDENCE_THRESHOLD = 0.95
 
 # Days-until-expiry below which the expiry_flag column is True in CSV export.

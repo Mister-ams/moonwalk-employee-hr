@@ -5,6 +5,7 @@ Auto-assigns EID-10xx employee IDs on first insert; idempotent on re-ingest.
 Connection: DATABASE_URL env var (Railway injects this automatically).
 """
 
+import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -29,11 +30,19 @@ CREATE TABLE IF NOT EXISTS employees (
     mohre_transaction_no TEXT UNIQUE,
     source_file          TEXT,
     confidence_score     NUMERIC,
+    field_scores         JSONB,
+    source_doc_type      TEXT,
     ingested_at          TEXT
 );
 
 CREATE SEQUENCE IF NOT EXISTS eid_seq START 1;
 """
+
+# Applied once on startup — safe to run against existing deployments.
+_MIGRATIONS = [
+    "ALTER TABLE employees ADD COLUMN IF NOT EXISTS field_scores JSONB",
+    "ALTER TABLE employees ADD COLUMN IF NOT EXISTS source_doc_type TEXT",
+]
 
 
 @contextmanager
@@ -53,6 +62,8 @@ def init_db() -> None:
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(_DDL)
+            for migration in _MIGRATIONS:
+                cur.execute(migration)
 
 
 def _next_eid(cur) -> str:
@@ -61,13 +72,20 @@ def _next_eid(cur) -> str:
     return f"EID-10{seq:02d}"  # EID-1001, EID-1002, ...
 
 
-def upsert_employee(fields: dict, source_file: str, confidence: float) -> str:
+def upsert_employee(
+    fields: dict,
+    source_file: str,
+    confidence: float,
+    field_scores: dict,
+    doc_type: str = "unknown",
+) -> str:
     """
-    Insert or update an employee record.
+    Insert or update an employee record. Always stores regardless of confidence.
     Deduplication key: passport_number or mohre_transaction_no.
     Returns the employee_id assigned.
     """
     now = datetime.now(timezone.utc).isoformat()
+    scores_json = json.dumps(field_scores)
 
     with _get_conn() as conn:
         with conn.cursor() as cur:
@@ -85,7 +103,8 @@ def upsert_employee(fields: dict, source_file: str, confidence: float) -> str:
                         full_name=%s, nationality=%s, date_of_birth=%s, job_title=%s,
                         base_salary=%s, total_salary=%s, contract_start_date=%s,
                         contract_expiry_date=%s, insurance_status=%s,
-                        source_file=%s, confidence_score=%s, ingested_at=%s
+                        source_file=%s, confidence_score=%s, field_scores=%s,
+                        source_doc_type=%s, ingested_at=%s
                        WHERE employee_id=%s""",
                     (
                         fields.get("full_name"),
@@ -99,6 +118,8 @@ def upsert_employee(fields: dict, source_file: str, confidence: float) -> str:
                         fields.get("insurance_status"),
                         source_file,
                         confidence,
+                        scores_json,
+                        doc_type,
                         now,
                         employee_id,
                     ),
@@ -110,8 +131,8 @@ def upsert_employee(fields: dict, source_file: str, confidence: float) -> str:
                         employee_id, full_name, nationality, date_of_birth, passport_number,
                         job_title, base_salary, total_salary, contract_start_date,
                         contract_expiry_date, insurance_status, mohre_transaction_no,
-                        source_file, confidence_score, ingested_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        source_file, confidence_score, field_scores, source_doc_type, ingested_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (
                         employee_id,
                         fields.get("full_name"),
@@ -127,6 +148,8 @@ def upsert_employee(fields: dict, source_file: str, confidence: float) -> str:
                         fields.get("mohre_transaction_no"),
                         source_file,
                         confidence,
+                        scores_json,
+                        doc_type,
                         now,
                     ),
                 )
@@ -151,3 +174,17 @@ def fetch_employee(employee_id: str) -> dict | None:
             )
             row = cur.fetchone()
             return dict(row) if row else None
+
+
+def fetch_exceptions() -> list[dict]:
+    """
+    Return employees with any field score below 0.95 (partial records needing review).
+    Excludes insurance_status which is always null until Sprint 3.
+    """
+    rows = fetch_all_employees()
+    result = []
+    for row in rows:
+        scores = row.get("field_scores") or {}
+        if any(v < 0.95 for k, v in scores.items() if k != "insurance_status"):
+            result.append(row)
+    return result

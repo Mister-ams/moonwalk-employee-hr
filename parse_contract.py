@@ -1,19 +1,36 @@
 """
 Contract PDF / image parser for UAE MOHRE standard employment contracts.
-Extraction strategy (tried in order per page):
+
+Extraction pipeline (two stages):
+
+Stage 1 — Text extraction (per page, tried in order):
   1. PyMuPDF (fitz) — cleaner Arabic/English separation; primary extractor
   2. pdfplumber — fallback for pages where fitz yields too little text
   3. PyMuPDF OCR via Tesseract — for scanned pages (requires Tesseract installed)
   4. pytesseract + pdf2image — legacy OCR path for images and PDF pages
 
-Each field tries patterns in order; first match wins.
+Stage 2 — Field parsing (per field, tried in order):
+  1. Regex patterns — score 1.0 on match
+  2. OpenAI GPT-4o-mini fallback — score 0.85 for any field that regex missed
+  3. Human review — score 0.0 fields flagged in needs_review output
+
+Records are ALWAYS stored regardless of confidence. Per-field scores surface
+in the portal so HR can review and correct partial extractions.
 """
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
 
 import pdfplumber
+
+try:
+    import openai
+
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OPENAI_AVAILABLE = False
 
 try:
     import fitz  # PyMuPDF
@@ -30,6 +47,8 @@ try:
     LEGACY_OCR_AVAILABLE = True
 except ImportError:
     LEGACY_OCR_AVAILABLE = False
+
+from config import OPENAI_API_KEY
 
 # Each field maps to a list of (pattern, flags) tuples tried in order.
 _S = re.IGNORECASE
@@ -88,11 +107,37 @@ PATTERNS: dict[str, list[tuple[str, int]]] = {
         (r"Total Salary:\s*(\d+(?:\.\d+)?)\s*AED", _S),
     ],
     "contract_start_date": [
+        # Standard MOHRE: "starting from 16/07/2025"
         (r"starting from\s+(\d{2}/\d{2}/\d{4})", _S),
+        # "commencing on/from DD/MM/YYYY"
+        (r"commenc(?:ing|es?)\s+(?:on|from)\s+(\d{2}/\d{2}/\d{4})", _S),
+        # "effective from/on DD/MM/YYYY"
+        (r"effective\s+(?:from|on|date)\s+(\d{2}/\d{2}/\d{4})", _S),
+        # "from DD/MM/YYYY to/until/and ending"
+        (r"from\s+(\d{2}/\d{2}/\d{4})\s+(?:to|until|and\s+ending)", _S),
+        # Table layout: "Start Date: DD/MM/YYYY" or "Start Date\nDD/MM/YYYY"
+        (r"Start\s*Date[\s:]+(\d{2}/\d{2}/\d{4})", _S),
+        # "term ... from DD/MM/YYYY" (DOTALL — Arabic text may sit between)
+        (r"term\b.{0,80}?\bfrom\s+(\d{2}/\d{2}/\d{4})", _SD),
     ],
     "contract_expiry_date": [
-        # [^\d]* matches Arabic text / newlines between label and date without re.DOTALL
+        # Standard MOHRE: "ending on DD/MM/YYYY" ([^\d]* absorbs Arabic between label and date)
         (r"ending on[^\d]*(\d{2}/\d{2}/\d{4})", _S),
+        # "expiring/expires on/at DD/MM/YYYY"
+        (r"expir(?:ing|es?|y\s*date)\s*(?:on|at|from|:)?\s*(\d{2}/\d{2}/\d{4})", _S),
+        # "until/up to/through/till DD/MM/YYYY"
+        (r"(?:until|up\s+to|through|till)\s+(\d{2}/\d{2}/\d{4})", _S),
+        # "from DD/MM/YYYY to/until DD/MM/YYYY" — capture the second date
+        (
+            r"from\s+\d{2}/\d{2}/\d{4}\s+(?:to|until|and\s+ending\s+on)\s+(\d{2}/\d{2}/\d{4})",
+            _S,
+        ),
+        # Table layout: "End Date: DD/MM/YYYY" or "Ending Date\nDD/MM/YYYY"
+        (r"End(?:ing)?\s*Date[\s:]+(\d{2}/\d{2}/\d{4})", _S),
+        # "valid until/till DD/MM/YYYY"
+        (r"valid\s+(?:until|till)\s+(\d{2}/\d{2}/\d{4})", _S),
+        # "term ... ending DD/MM/YYYY" (DOTALL)
+        (r"term\b.{0,80}?\bending\s+(?:on\s+)?(\d{2}/\d{2}/\d{4})", _SD),
     ],
     "mohre_transaction_no": [
         # PyMuPDF + Adil pdfplumber: value on same or next line after label
@@ -111,6 +156,72 @@ _MIN_TEXT_CHARS = 100
 
 def _to_iso(value: str) -> str:
     return datetime.strptime(value, "%d/%m/%Y").strftime("%Y-%m-%d")
+
+
+# --- Document type detection ---
+
+
+def _detect_doc_type(text: str) -> str:
+    """Return 'employment_contract', 'job_offer', or 'unknown'."""
+    if re.search(r"EMPLOYMENT CONTRACT", text, re.IGNORECASE):
+        return "employment_contract"
+    if re.search(r"JOB OFFER", text, re.IGNORECASE):
+        return "job_offer"
+    return "unknown"
+
+
+# Job offer: signing date from "Corresponding to = DD/MM/YYYY" (OCR may merge the words)
+_JO_SIGNING_DATE_PATTERNS = [
+    (r"Corresponding\s*to\s*[=:]?\s*(\d{2}/\d{2}/\d{4})", _S),
+]
+
+# Job offer: contract duration "for a period of 2 years" or "Two Year"
+_JO_DURATION_PATTERNS = [
+    (r"for\s+a\s+period\s+of\s+(\d+)\s+[Yy]ear", _S),
+    (r"for\s+a\s+period\s+of\s+(one|two|three|four|five)\s+[Yy]ear", _S),
+]
+_YEAR_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _extract_job_offer_dates(text: str) -> tuple[str | None, str | None]:
+    """
+    Derive start and expiry from job offer format.
+    Start  = signing date ("Corresponding to = DD/MM/YYYY")
+    Expiry = start + contract duration years
+    Scores as 0.85 — derived/computed, needs spot-check.
+    """
+    start_iso = None
+    for pattern, flags in _JO_SIGNING_DATE_PATTERNS:
+        m = re.search(pattern, text, flags)
+        if m:
+            try:
+                start_iso = _to_iso(m.group(1))
+                break
+            except ValueError:
+                continue
+
+    if not start_iso:
+        return None, None
+
+    years = None
+    for pattern, flags in _JO_DURATION_PATTERNS:
+        m = re.search(pattern, text, flags)
+        if m:
+            raw = m.group(1).lower()
+            years = _YEAR_WORDS.get(raw) or (int(raw) if raw.isdigit() else None)
+            if years:
+                break
+
+    if not years:
+        return start_iso, None
+
+    start_dt = datetime.strptime(start_iso, "%Y-%m-%d")
+    try:
+        expiry_dt = start_dt.replace(year=start_dt.year + years)
+    except ValueError:  # Feb 29 on non-leap year
+        expiry_dt = start_dt.replace(year=start_dt.year + years, day=28)
+
+    return start_iso, expiry_dt.strftime("%Y-%m-%d")
 
 
 def _extract_pdfplumber_safe(pdf_path: Path) -> tuple[str, list[str]]:
@@ -242,6 +353,80 @@ def _get_text(file_path: Path) -> tuple[str, bool]:
     return full_text, ocr_used
 
 
+_LLM_FIELD_DEFS = {
+    "full_name": "Employee's full name (Second Party / employee, not the employer)",
+    "nationality": "Employee's nationality (e.g. UGANDAN, PAKISTANI, SUDANESE)",
+    "date_of_birth": "Employee's date of birth in DD/MM/YYYY format",
+    "passport_number": "Employee's passport number (alphanumeric, starts with a letter)",
+    "job_title": "Employee's job title or profession",
+    "base_salary": "Basic/base salary in AED — return a number only, no currency symbol",
+    "total_salary": "Total monthly salary in AED — return a number only, no currency symbol",
+    "contract_start_date": "Date the employment contract starts or commences, in DD/MM/YYYY format",
+    "contract_expiry_date": "Date the employment contract ends or expires, in DD/MM/YYYY format",
+    "mohre_transaction_no": "MOHRE or Ministry transaction/reference number (alphanumeric code)",
+}
+
+
+def _llm_extract_fields(
+    text: str, missing_fields: list[str]
+) -> dict[str, tuple[str | None, float]]:
+    """
+    OpenAI GPT-4o-mini fallback for fields that regex missed.
+    Called once per document with all 0.0-scored fields batched into a single request.
+    Returns {field: (value, score)} where score=0.85 for LLM extractions.
+    Returns {} silently if OpenAI is unavailable or the API call fails.
+    """
+    if not _OPENAI_AVAILABLE or not OPENAI_API_KEY or not missing_fields:
+        return {}
+
+    fields_to_extract = "\n".join(
+        f"- {f}: {_LLM_FIELD_DEFS[f]}" for f in missing_fields if f in _LLM_FIELD_DEFS
+    )
+    if not fields_to_extract:
+        return {}
+
+    prompt = (
+        "Extract the following fields from this UAE MOHRE employment contract text.\n"
+        "Return a JSON object with exactly these keys. Use null for any field not found.\n"
+        "For dates use DD/MM/YYYY format. For salaries return numbers only.\n\n"
+        f"Fields to extract:\n{fields_to_extract}\n\n"
+        f"Contract text:\n{text[:4000]}"
+    )
+
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        raw = json.loads(response.choices[0].message.content)
+    except Exception:
+        return {}
+
+    results: dict[str, tuple[str | None, float]] = {}
+    for field in missing_fields:
+        val = raw.get(field)
+        if val is None:
+            results[field] = (None, 0.0)
+            continue
+        if field in DATE_FIELDS:
+            try:
+                results[field] = (_to_iso(str(val)), 0.85)
+            except ValueError:
+                results[field] = (None, 0.0)
+        elif field in DECIMAL_FIELDS:
+            try:
+                results[field] = (float(val), 0.85)
+            except (ValueError, TypeError):
+                results[field] = (None, 0.0)
+        else:
+            results[field] = (str(val).strip(), 0.85)
+
+    return results
+
+
 def _match_field(field: str, text: str) -> tuple[str | None, float]:
     """Try each pattern for a field; return (value, confidence).
 
@@ -289,6 +474,27 @@ def parse_contract(file_path: Path) -> dict:
         fields[field] = value
         scores[field] = score
 
+    # Detect document type before LLM fallback
+    doc_type = _detect_doc_type(text)
+
+    # Job offer: derive dates from signing date + duration BEFORE calling the LLM.
+    # The LLM tends to return the signing date as the expiry — deriving avoids that.
+    if doc_type == "job_offer":
+        jo_start, jo_expiry = _extract_job_offer_dates(text)
+        if jo_start and scores["contract_start_date"] == 0.0:
+            fields["contract_start_date"] = jo_start
+            scores["contract_start_date"] = 0.85
+        if jo_expiry and scores["contract_expiry_date"] == 0.0:
+            fields["contract_expiry_date"] = jo_expiry
+            scores["contract_expiry_date"] = 0.85
+
+    # LLM fallback — batch all remaining 0.0-scored fields into one API call
+    missing = [f for f in PATTERNS if scores[f] == 0.0]
+    if missing:
+        for field, (value, score) in _llm_extract_fields(text, missing).items():
+            fields[field] = value
+            scores[field] = score
+
     # insurance_status not in contract PDF — populated by benefits doc (Sprint 3)
     fields["insurance_status"] = None
     scores["insurance_status"] = 1.0
@@ -301,4 +507,5 @@ def parse_contract(file_path: Path) -> dict:
         "field_scores": scores,
         "confidence": confidence,
         "ocr_used": ocr_used,
+        "doc_type": doc_type,
     }
