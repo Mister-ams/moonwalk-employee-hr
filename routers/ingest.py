@@ -81,7 +81,9 @@ async def ingest_contract_base64(
             detail="Only PDF files are accepted",
         )
     try:
-        contents = base64.b64decode(body.data)
+        # Appsmith sends files as data URLs: "data:application/pdf;base64,<data>"
+        raw = body.data.split(",", 1)[-1] if "," in body.data else body.data
+        contents = base64.b64decode(raw)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
