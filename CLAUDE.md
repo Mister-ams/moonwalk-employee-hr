@@ -110,6 +110,10 @@ Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
 
 **Postgres + Railway**: Storage is backed by Railway's managed Postgres plugin. `DATABASE_URL` is injected automatically and data persists across redeploys. No volume mount needed.
 
+**IMPORTANT — No GitHub auto-deploy**: Railway service has `source: null` — git pushes do NOT trigger deployments. Always run `railway up` from `~/Downloads/EmployeeHR/` after pushing to deploy.
+
+**Tesseract not on Railway**: OCR via Tesseract is unavailable in the Railway container. Scanned pages fall through to LLM vision (score 0.80) or LLM text fallback. Mixed documents (some pages text, some scanned) use LLM text fallback — scanned pages' content (e.g. Adil's salary page) will not be extracted and must be entered manually.
+
 ## Critical Gotchas
 
 **Extraction strategy** — `parse_contract.py` tries 4 strategies per page in order. The threshold `_MIN_TEXT_CHARS = 100` decides whether fitz/pdfplumber output is "good enough" or OCR is needed. Strategy priority: PyMuPDF (fitz) → pdfplumber → PyMuPDF OCR via Tesseract → pytesseract+pdf2image (legacy). Both `PYMUPDF_AVAILABLE` and `LEGACY_OCR_AVAILABLE` are soft flags set at import time — parser degrades gracefully if optional deps are missing.
@@ -140,5 +144,7 @@ Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
 - **Sprint 2 Local Operations Tick — COMPLETED 2026-02-21**: `ingest_folder.py`, `export_employees.py`, FastAPI (health/employees/ingest/export), Railway config (Procfile, requirements.txt, config.py, auth.py, .env.example).
 - **Sprint 2B Appsmith Portal Bootstrap — COMPLETED 2026-02-22**: HR Portal live at `https://app.appsmith.com/app/hr-portal/page1-699a032d2267980abdf9034d`. 4 queries wired (GetEmployees/GetEmployee/IngestPDF/ExportCSV), EmployeeTable + FilePicker + Upload Contract + Download CSV buttons. `/ingest/base64` endpoint added for Appsmith upload compatibility. Setup guide: `appsmith/hr-portal-setup.md`.
 - **Parser hardening — commit `5db2374` (2026-02-23)**: PyMuPDF added as primary extractor, Tesseract OCR wired for scanned pages, PATTERNS refactored to prioritized list per field. Validated against 3 real contracts: Frank 10/10 (confidence 1.0), Adil 10/10 (confidence 1.0, OCR used for scanned salary page), Altahir 8/10 (confidence 0.0 — Job Offer format lacks contract dates, routes to exception queue correctly).
+- **Per-field review — commit `bbdd211` (2026-02-24)**: `confidence` → `min_field_score` throughout (floor of per-field scores, not a doc-level gate). `_build_needs_review` now includes `current_value` per flagged field. API response adds `field_scores` dict. Documents always stored; only individual low-confidence fields flagged.
+- **Railway verified (2026-02-24)**: All 3 contracts return 201. Frank: 10/10 score 1.0. Altahir: 10/10 score 0.8 via LLM vision. Adil: 8/10 score 0.0 (salary fields null — scanned page, no Tesseract on Railway, correctly flagged `enter_manually`).
 - **Tests**: 0 (no test suite yet — Sprint 4 mandates ≥80% coverage)
 - **Next**: Sprint 2C (portal UX brainstorm, mobile-first layout design) → Sprint 3 MVP
