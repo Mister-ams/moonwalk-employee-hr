@@ -18,7 +18,12 @@ PDF contracts (drop file locally for PoC; OneDrive /HR/Contracts/ for Sprint 3+)
 ingest_contract.py         <- CLI: single PDF
 ingest_folder.py           <- CLI: batch folder
     |
-    +-> parse_contract.py  <- pdfplumber + regex, confidence scoring
+    +-> parse_contract.py  <- 4-strategy extraction chain + per-field PATTERNS
+    |       |
+    |       +-[1] PyMuPDF (fitz)       <- primary; cleaner Arabic/English separation
+    |       +-[2] pdfplumber           <- fallback if fitz page < 100 chars
+    |       +-[3] PyMuPDF OCR          <- Tesseract via fitz for scanned pages
+    |       +-[4] pytesseract+pdf2image <- legacy OCR if fitz unavailable
     |
     +-> db.py              <- SQLite storage (Postgres in Sprint 3+)
         |
@@ -33,6 +38,7 @@ FastAPI (main.py)
     /employees            <- GET — list all employees
     /employees/{id}       <- GET — single employee
     /ingest               <- POST — upload PDF, parse + store
+    /ingest/base64        <- POST — base64 PDF upload (Appsmith workaround)
     /export/csv           <- GET — stream employees.csv
 ```
 
@@ -47,7 +53,7 @@ FastAPI (main.py)
 | `routers/employees.py` | `GET /employees`, `GET /employees/{id}` |
 | `routers/ingest.py` | `POST /ingest` — multipart PDF upload, parse, upsert; 422 on low confidence with per-field scores |
 | `routers/export.py` | `GET /export/csv` — streams CSV with `days_until_expiry` + `expiry_flag` columns |
-| `parse_contract.py` | MOHRE contract PDF parser — 10 fields, per-field confidence scoring, bilingual layout aware |
+| `parse_contract.py` | MOHRE contract PDF/image parser — 4-strategy extraction chain (PyMuPDF → pdfplumber → PyMuPDF OCR → pytesseract), per-field PATTERNS list, returns `{fields, field_scores, confidence, ocr_used}` |
 | `db.py` | SQLite storage — EID-10xx auto-assign, idempotent upsert on `passport_number` / `mohre_transaction_no` |
 | `ingest_contract.py` | CLI — single PDF parse + store, exits non-zero below confidence threshold |
 | `ingest_folder.py` | CLI — batch folder ingest, idempotent, writes `exceptions.csv` for low-confidence records |
@@ -96,28 +102,35 @@ sqlite3 employees.db "SELECT employee_id, full_name, job_title, contract_expiry_
 ```
 Railway env vars:
   HR_API_KEY     — set (see .env.example for key storage)
-  HR_DB_PATH     — not set; DB is ephemeral without a mounted volume
+  DATABASE_URL   — set automatically via Railway Postgres plugin (persistent)
 
 Build: nixpacks picks up requirements.txt automatically
 Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
-**SQLite + Railway**: Without a mounted volume, the DB resets on each deploy. For persistent storage, mount a volume at `/data` and set `HR_DB_PATH=/data/employees.db`. Postgres migration is Sprint 3.
+**Postgres + Railway**: Storage is backed by Railway's managed Postgres plugin. `DATABASE_URL` is injected automatically and data persists across redeploys. No volume mount needed.
 
 ## Critical Gotchas
 
-**pdfplumber + bilingual MOHRE PDFs** — Arabic column reorders extracted text. Three non-obvious patterns:
+**Extraction strategy** — `parse_contract.py` tries 4 strategies per page in order. The threshold `_MIN_TEXT_CHARS = 100` decides whether fitz/pdfplumber output is "good enough" or OCR is needed. Strategy priority: PyMuPDF (fitz) → pdfplumber → PyMuPDF OCR via Tesseract → pytesseract+pdf2image (legacy). Both `PYMUPDF_AVAILABLE` and `LEGACY_OCR_AVAILABLE` are soft flags set at import time — parser degrades gracefully if optional deps are missing.
 
-- `date_of_birth`: table cell splits to `"Date 14/04/1996"` (not `"Date of Birth"`).
-  Pattern: `r"\bDate\b\s+(\d{2}/\d{2}/\d{4})"`
+**PATTERNS is a prioritized list per field** — each field maps to `list[tuple[pattern, flags]]`. `_match_field()` uses `re.finditer` (not `re.search`) so that when a pattern matches multiple times, each occurrence is tried before falling through to the next pattern. This handles OCR noise where a garbled value appears before the real one (e.g. `"99/11/1999"` before `"29/11/1999"` for date_of_birth).
 
-- `passport_number`: value appears on the line BEFORE the `Passport Number` label.
-  Pattern: `r"([A-Z][0-9A-Z]{5,})\s+Telephone"`
+**Nationality anchor** — primary pattern anchors to `2.?\s*Name` prefix: `r"2\.?\s*Name\s+[A-Z][A-Z ]+\s+Nationality\s+([A-Z]+)"`. Without this anchor, a bare `Nationality\s+([A-Z]+)` matches the employer's "Nationality EMIRATES" instead of the employee's nationality. The dot after `2` is optional because OCR sometimes drops it.
 
-- `mohre_transaction_no`: Arabic text sits between label and value across a newline.
-  Pattern: `r"Transaction Number[^\n]*\n([A-Z0-9]+)"`
+**PyMuPDF OCR GC bug** — must hold `page` reference as a local variable during `get_textpage_ocr()`. The page object must not be GC'd while the textpage is in use. Pattern: `page = doc[i]` → `tp = page.get_textpage_ocr(...)` → `text = page.get_text(textpage=tp)`. Always wrap `doc` in a try/finally with `doc.close()`.
 
-**insurance_status**: NOT present in MOHRE contract PDFs — field is always `null` until Sprint 3 (benefits form). This is expected; confidence scoring treats it as 1.0.
+**Tesseract auto-discovery** — `_ocr_page_fitz()` tries `tessdata=None` (PATH default) first, then `C:/Program Files/Tesseract-OCR/tessdata`, then the x86 path. `RuntimeError` is caught per-candidate. If none work, returns `""` (does not raise).
+
+**Job Offer format** — `contract_start_date` and `contract_expiry_date` are absent in MOHRE Job Offer documents (no `"starting from"` / `"ending on"` phrases). These records get `confidence=0.0` and correctly route to the exception queue. This is expected behaviour, not a parser bug.
+
+**pdfplumber bilingual layout** — still relevant as the fallback extractor. Three non-obvious patterns that pdfplumber requires (PyMuPDF handles these cleanly but pdfplumber is still used on pages where fitz yields < 100 chars):
+
+- `date_of_birth`: pdfplumber splits the cell to `"Date 14/04/1996"` — pattern `r"\bDate\b\s+(\d{2}/\d{2}/\d{4})"` (list position 2, after PyMuPDF pattern)
+- `passport_number`: value appears before `"Telephone"` label — pattern `r"([A-Z][0-9A-Z]{5,})\s+Telephone"` (list position 2, fallback only)
+- `mohre_transaction_no`: Arabic text between label and value across newline — pattern `r"Transaction Number[^\n]*\n([A-Z0-9]+)"` (list position 2)
+
+**insurance_status**: NOT present in MOHRE contract PDFs — always `null` until Sprint 3 (benefits form). Confidence scoring treats it as 1.0.
 
 **confidence threshold**: 0.95 — records below this are printed with per-field scores and not stored.
 
@@ -125,5 +138,7 @@ Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
 
 - **Sprint 1 POC Tick — COMPLETED 2026-02-21**: parser + SQLite storage working. Frank Ssebaggala (EID-1001), confidence 1.00.
 - **Sprint 2 Local Operations Tick — COMPLETED 2026-02-21**: `ingest_folder.py`, `export_employees.py`, FastAPI (health/employees/ingest/export), Railway config (Procfile, requirements.txt, config.py, auth.py, .env.example).
-- **Sprint 2B Appsmith Portal Bootstrap — COMPLETED 2026-02-22**: HR Portal live at `https://app.appsmith.com/app/hr-portal/page1-699a032d2267980abdf9034d`. 4 queries wired (GetEmployees/GetEmployee/IngestPDF/ExportCSV), EmployeeTable + FilePicker + Upload Contract + Download CSV buttons. Setup guide: `appsmith/hr-portal-setup.md`.
-- **Next**: Sprint 3 — MVP (Prefect, three document types, compliance rules, Appsmith exception queue)
+- **Sprint 2B Appsmith Portal Bootstrap — COMPLETED 2026-02-22**: HR Portal live at `https://app.appsmith.com/app/hr-portal/page1-699a032d2267980abdf9034d`. 4 queries wired (GetEmployees/GetEmployee/IngestPDF/ExportCSV), EmployeeTable + FilePicker + Upload Contract + Download CSV buttons. `/ingest/base64` endpoint added for Appsmith upload compatibility. Setup guide: `appsmith/hr-portal-setup.md`.
+- **Parser hardening — commit `5db2374` (2026-02-23)**: PyMuPDF added as primary extractor, Tesseract OCR wired for scanned pages, PATTERNS refactored to prioritized list per field. Validated against 3 real contracts: Frank 10/10 (confidence 1.0), Adil 10/10 (confidence 1.0, OCR used for scanned salary page), Altahir 8/10 (confidence 0.0 — Job Offer format lacks contract dates, routes to exception queue correctly).
+- **Tests**: 0 (no test suite yet — Sprint 4 mandates ≥80% coverage)
+- **Next**: Sprint 2C (portal UX brainstorm, mobile-first layout design) → Sprint 3 MVP
