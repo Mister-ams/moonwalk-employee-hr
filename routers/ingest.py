@@ -73,8 +73,9 @@ def _parse_and_store(contents: bytes, filename: str) -> dict:
 async def ingest_contract(file: UploadFile, _: str = Depends(require_api_key)):
     """
     Upload a MOHRE contract PDF via multipart/form-data.
-    Returns the stored employee record on success.
-    Returns 422 if confidence is below the threshold, with per-field scores.
+    Always stores the record regardless of confidence.
+    Returns the stored employee record with per-field scores and a needs_review list
+    for any field that scored below 0.95.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(

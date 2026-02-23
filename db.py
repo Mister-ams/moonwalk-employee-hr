@@ -17,7 +17,7 @@ from config import DATABASE_URL
 _DDL = """
 CREATE TABLE IF NOT EXISTS employees (
     employee_id          TEXT PRIMARY KEY,
-    full_name            TEXT NOT NULL,
+    full_name            TEXT,
     nationality          TEXT,
     date_of_birth        TEXT,
     passport_number      TEXT UNIQUE,
@@ -42,6 +42,7 @@ CREATE SEQUENCE IF NOT EXISTS eid_seq START 1;
 _MIGRATIONS = [
     "ALTER TABLE employees ADD COLUMN IF NOT EXISTS field_scores JSONB",
     "ALTER TABLE employees ADD COLUMN IF NOT EXISTS source_doc_type TEXT",
+    "ALTER TABLE employees ALTER COLUMN full_name DROP NOT NULL",
 ]
 
 

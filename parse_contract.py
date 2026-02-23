@@ -11,13 +11,17 @@ Stage 1 — Text extraction (per page, tried in order):
 
 Stage 2 — Field parsing (per field, tried in order):
   1. Regex patterns — score 1.0 on match
-  2. OpenAI GPT-4o-mini fallback — score 0.85 for any field that regex missed
-  3. Human review — score 0.0 fields flagged in needs_review output
+  2. Job offer derivation — score 0.85 for contract dates derived from signing date + duration
+  3a. LLM text fallback (GPT-4o-mini) — score 0.85 for missed fields in text-layer PDFs
+  3b. LLM vision fallback (GPT-4o-mini) — score 0.80 for fully scanned PDFs
+       fires when total extracted text < _MIN_DOC_CHARS after all Stage 1 strategies
+  4. Human review — score 0.0 fields flagged in needs_review output
 
 Records are ALWAYS stored regardless of confidence. Per-field scores surface
 in the portal so HR can review and correct partial extractions.
 """
 
+import base64
 import json
 import re
 from datetime import datetime
@@ -162,11 +166,17 @@ def _to_iso(value: str) -> str:
 
 
 def _detect_doc_type(text: str) -> str:
-    """Return 'employment_contract', 'job_offer', or 'unknown'."""
+    """Return 'employment_contract', 'job_offer', or 'unknown'.
+
+    MOHRE employment contracts reference "Job Offer No ST..." in their body,
+    so a bare "JOB OFFER" match would misclassify them. The negative lookahead
+    (?!\\s+No\\b) skips "Job Offer No ..." references and only matches when
+    "JOB OFFER" appears as the document type label (e.g. "JOB OFFER FULLWORK").
+    """
+    if re.search(r"JOB OFFER(?!\s+No\b)", text, re.IGNORECASE):
+        return "job_offer"
     if re.search(r"EMPLOYMENT CONTRACT", text, re.IGNORECASE):
         return "employment_contract"
-    if re.search(r"JOB OFFER", text, re.IGNORECASE):
-        return "job_offer"
     return "unknown"
 
 
@@ -240,8 +250,10 @@ def _extract_text_fitz(pdf_path: Path) -> tuple[str, list[str]]:
 
 _TESSDATA_CANDIDATES = [
     None,  # environment default (works when tesseract is in PATH)
-    "C:/Program Files/Tesseract-OCR/tessdata",
-    "C:/Program Files (x86)/Tesseract-OCR/tessdata",
+    "/usr/share/tesseract-ocr/4.00/tessdata",  # Ubuntu/Debian
+    "/usr/share/tessdata",  # Alpine / other Linux
+    "C:/Program Files/Tesseract-OCR/tessdata",  # Windows
+    "C:/Program Files (x86)/Tesseract-OCR/tessdata",  # Windows x86
 ]
 
 
@@ -367,6 +379,108 @@ _LLM_FIELD_DEFS = {
 }
 
 
+# Total extracted text below this threshold triggers vision extraction (scanned PDF).
+_MIN_DOC_CHARS = 100
+
+
+def _llm_vision_extract_fields(
+    file_path: Path, missing_fields: list[str]
+) -> dict[str, tuple[str | None, float]]:
+    """
+    GPT-4o-mini vision fallback for fully scanned PDFs where text extraction yielded
+    too little text. Renders each page as a PNG and sends to the vision API.
+    Returns {field: (value, score)} where score=0.80 for vision extractions.
+    Also returns {"_doc_type": ("employment_contract"|"job_offer"|"unknown", 1.0)}.
+    Returns {} silently if OpenAI/PyMuPDF is unavailable or the API call fails.
+    """
+    if (
+        not _OPENAI_AVAILABLE
+        or not OPENAI_API_KEY
+        or not PYMUPDF_AVAILABLE
+        or not missing_fields
+    ):
+        return {}
+
+    try:
+        doc = fitz.open(str(file_path))
+        try:
+            images_b64 = [
+                base64.b64encode(page.get_pixmap(dpi=150).tobytes("png")).decode()
+                for page in doc
+            ]
+        finally:
+            doc.close()
+    except Exception:
+        return {}
+
+    if not images_b64:
+        return {}
+
+    fields_spec = "\n".join(
+        f"- {f}: {_LLM_FIELD_DEFS[f]}" for f in missing_fields if f in _LLM_FIELD_DEFS
+    )
+    if not fields_spec:
+        return {}
+
+    prompt = (
+        "Extract the following fields from this UAE MOHRE employment contract document image(s).\n"
+        "Return a JSON object with exactly these keys. Use null for any field not found.\n"
+        "For dates use DD/MM/YYYY format. For salaries return numbers only.\n"
+        "Also include key '_doc_type' set to 'employment_contract', 'job_offer', or 'unknown'.\n\n"
+        f"Fields to extract:\n{fields_spec}"
+    )
+
+    content: list = [{"type": "text", "text": prompt}]
+    for img_b64 in images_b64:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_b64}",
+                    "detail": "high",
+                },
+            }
+        )
+
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": content}],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        raw = json.loads(response.choices[0].message.content)
+    except Exception:
+        return {}
+
+    results: dict[str, tuple[str | None, float]] = {}
+
+    doc_type_val = str(raw.get("_doc_type", "unknown"))
+    if doc_type_val in ("employment_contract", "job_offer", "unknown"):
+        results["_doc_type"] = (doc_type_val, 1.0)
+
+    for field in missing_fields:
+        val = raw.get(field)
+        if val is None:
+            results[field] = (None, 0.0)
+            continue
+        if field in DATE_FIELDS:
+            try:
+                results[field] = (_to_iso(str(val)), 0.80)
+            except ValueError:
+                results[field] = (None, 0.0)
+        elif field in DECIMAL_FIELDS:
+            try:
+                results[field] = (float(val), 0.80)
+            except (ValueError, TypeError):
+                results[field] = (None, 0.0)
+        else:
+            results[field] = (str(val).strip(), 0.80)
+
+    return results
+
+
 def _llm_extract_fields(
     text: str, missing_fields: list[str]
 ) -> dict[str, tuple[str | None, float]]:
@@ -488,12 +602,27 @@ def parse_contract(file_path: Path) -> dict:
             fields["contract_expiry_date"] = jo_expiry
             scores["contract_expiry_date"] = 0.85
 
-    # LLM fallback — batch all remaining 0.0-scored fields into one API call
+    # LLM fallback — batch all remaining 0.0-scored fields into one API call.
+    # Route to vision extraction when the full document has too little text (scanned PDF).
     missing = [f for f in PATTERNS if scores[f] == 0.0]
     if missing:
-        for field, (value, score) in _llm_extract_fields(text, missing).items():
-            fields[field] = value
-            scores[field] = score
+        if (
+            len(text.strip()) < _MIN_DOC_CHARS
+            and PYMUPDF_AVAILABLE
+            and _OPENAI_AVAILABLE
+        ):
+            # Scanned PDF: render pages as images and extract via GPT-4o-mini vision
+            vision_results = _llm_vision_extract_fields(file_path, missing)
+            extracted_doc_type = vision_results.pop("_doc_type", None)
+            if extracted_doc_type and doc_type == "unknown":
+                doc_type = extracted_doc_type[0]
+            for field, (value, score) in vision_results.items():
+                fields[field] = value
+                scores[field] = score
+        else:
+            for field, (value, score) in _llm_extract_fields(text, missing).items():
+                fields[field] = value
+                scores[field] = score
 
     # insurance_status not in contract PDF — populated by benefits doc (Sprint 3)
     fields["insurance_status"] = None
