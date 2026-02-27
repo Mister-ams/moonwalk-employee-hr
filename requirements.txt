@@ -1,3 +1,6 @@
+# Production dependencies for Railway deploy.
+# Kept in sync with pyproject.toml [project].dependencies.
+# NOTE: loomi-auth requires LOOMI_GITHUB_PAT in nixpacks.toml setup phase to clone.
 pdfplumber>=0.11
 pymupdf>=1.24
 fastapi[standard]>=0.115
@@ -10,3 +13,4 @@ alembic>=1.13
 pydantic-settings>=2.0
 structlog>=24.0
 tenacity>=8.0
+git+https://github.com/Mister-ams/packages.git#subdirectory=loomi-auth-py
