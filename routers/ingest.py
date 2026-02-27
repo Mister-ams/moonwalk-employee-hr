@@ -4,7 +4,7 @@ import base64
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from auth import require_api_key
@@ -76,7 +76,7 @@ def _parse_and_store(contents: bytes, filename: str) -> dict:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["ingest"])
-async def ingest_contract(file: UploadFile, _: str = Depends(require_api_key)):
+async def ingest_contract(file: UploadFile, _: str = require_api_key):
     """
     Upload a MOHRE contract PDF via multipart/form-data.
     Always stores the record regardless of confidence.
@@ -98,9 +98,7 @@ class IngestBase64Request(BaseModel):
 
 
 @router.post("/base64", status_code=status.HTTP_201_CREATED, tags=["ingest"])
-async def ingest_contract_base64(
-    body: IngestBase64Request, _: str = Depends(require_api_key)
-):
+async def ingest_contract_base64(body: IngestBase64Request, _: str = require_api_key):
     """
     Upload a MOHRE contract PDF as a base64-encoded JSON body.
     Intended for Appsmith (which cannot reliably send multipart/form-data).
