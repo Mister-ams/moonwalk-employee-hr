@@ -1,8 +1,10 @@
-employees.db
+*.db
+*.sqlite
 debug_text.txt
 __pycache__/
 *.pyc
 *.pyo
 .env
+.venv/
 exceptions.csv
 employees.csv
