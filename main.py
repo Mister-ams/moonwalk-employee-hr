@@ -1,12 +1,23 @@
-"""FastAPI entrypoint — Employee HR Service."""
+"""FastAPI entrypoint -- Employee HR Service."""
 
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.add_log_level,
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.BoundLogger,
+    logger_factory=structlog.PrintLoggerFactory(),
+)
 
 try:
     from dotenv import load_dotenv
