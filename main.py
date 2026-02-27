@@ -26,9 +26,9 @@ try:
 except ImportError:
     pass  # Railway sets env vars natively
 
-from config import API_KEY
-from db import init_db
-from routers import employees, exceptions, export, health, ingest
+from config import API_KEY  # noqa: E402
+from db import init_db  # noqa: E402
+from routers import employees, exceptions, export, health, ingest  # noqa: E402
 
 logger = logging.getLogger("hr.startup")
 
