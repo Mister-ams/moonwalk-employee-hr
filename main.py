@@ -36,7 +36,7 @@ logger = logging.getLogger("hr.startup")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not API_KEY:
-        logger.warning("HR_API_KEY not set — all requests will be rejected")
+        logger.warning("LOOMI_API_KEY not set -- all requests will be rejected")
     init_db()
     yield
 
