@@ -45,7 +45,11 @@ app = FastAPI(title="Employee HR Service", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://app.appsmith.com"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "https://employee-hr-staging-production.up.railway.app",
+    ],
     allow_methods=["GET", "POST"],
     allow_headers=["X-API-Key", "Content-Type"],
 )

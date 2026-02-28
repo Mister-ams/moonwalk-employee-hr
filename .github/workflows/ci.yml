@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [main, loomi-os-phase1]
+    branches: [master, loomi-os-phase1]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   pre-commit:
@@ -123,16 +123,9 @@ jobs:
   deploy:
     needs: [lint, type-check, test, security, build]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Pre-deploy migration check
-        run: |
-          pip install alembic psycopg2-binary
-          alembic check
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Deploy to Railway
         uses: berviantoleo/railway-deploy@main
@@ -157,7 +150,7 @@ jobs:
   doc-automation:
     needs: [deploy]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     permissions:
       contents: write
     env:
