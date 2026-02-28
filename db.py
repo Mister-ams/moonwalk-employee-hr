@@ -85,7 +85,7 @@ def upsert_employee(
     Deduplication key: passport_number or mohre_transaction_no.
     Returns the employee_id assigned.
     """
-    now = datetime.now(datetime.UTC).isoformat()
+    now = datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
     scores_json = json.dumps(field_scores)
 
     with _get_conn() as conn:

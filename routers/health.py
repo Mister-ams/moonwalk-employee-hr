@@ -1,10 +1,11 @@
 import os
 
+from fastapi import APIRouter
+from sqlalchemy import create_engine, pool, text
+
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, pool, text
-from fastapi import APIRouter
 
 router = APIRouter()
 

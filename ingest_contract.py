@@ -31,9 +31,7 @@ def _print_review_summary(fields: dict, scores: dict) -> list[str]:
         flag = "  <-- REVIEW" if score < 0.95 else ""
         print(f"  {field:<25} {str(value):<30} {score:<6.2f} {source}{flag}")
 
-    needs_review = [
-        f for f, s in scores.items() if f != "insurance_status" and s < 0.95
-    ]
+    needs_review = [f for f, s in scores.items() if f != "insurance_status" and s < 0.95]
     return needs_review
 
 
@@ -58,18 +56,14 @@ def main():
 
     needs_review = _print_review_summary(fields, scores)
 
-    employee_id = upsert_employee(
-        fields, str(pdf_path), min_field_score, scores, doc_type
-    )
+    employee_id = upsert_employee(fields, str(pdf_path), min_field_score, scores, doc_type)
 
     print(f"\nStored: {employee_id}  {fields.get('full_name', '(unknown)')}")
     if ocr_used:
         print("  Note: OCR was used on one or more pages.")
 
     if doc_type == "job_offer":
-        print(
-            "\n  WARNING: This is a Job Offer document, not a signed Employment Contract."
-        )
+        print("\n  WARNING: This is a Job Offer document, not a signed Employment Contract.")
         print("  Contract dates are derived from signing date + contract duration.")
         print("  Action: upload the Employment Contract (MB-series) to confirm dates.")
 

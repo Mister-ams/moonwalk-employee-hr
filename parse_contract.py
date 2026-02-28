@@ -460,7 +460,7 @@ def _llm_vision_extract_fields(file_path: Path, missing_fields: list[str]) -> di
                 results[field] = (None, 0.0)
         elif field in DECIMAL_FIELDS:
             try:
-                results[field] = (float(val), 0.80)
+                results[field] = (float(val), 0.80)  # type: ignore[assignment]
             except (ValueError, TypeError):
                 results[field] = (None, 0.0)
         else:

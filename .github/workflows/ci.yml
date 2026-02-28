@@ -38,9 +38,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: sqlite:///./test.db
-      LOOMI_API_KEY: test-key
-      ANTHROPIC_API_KEY: sk-ant-test
-      OPENAI_API_KEY: sk-test
+      LOOMI_API_KEY: test-key  # pragma: allowlist secret
+      ANTHROPIC_API_KEY: sk-ant-test  # pragma: allowlist secret
+      OPENAI_API_KEY: sk-test  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -64,9 +64,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: sqlite:///./test.db
-      LOOMI_API_KEY: test-key
-      ANTHROPIC_API_KEY: sk-ant-test
-      OPENAI_API_KEY: sk-test
+      LOOMI_API_KEY: test-key  # pragma: allowlist secret
+      ANTHROPIC_API_KEY: sk-ant-test  # pragma: allowlist secret
+      OPENAI_API_KEY: sk-test  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -88,9 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: sqlite:///./test.db
-      LOOMI_API_KEY: test-key
-      ANTHROPIC_API_KEY: sk-ant-test
-      OPENAI_API_KEY: sk-test
+      LOOMI_API_KEY: test-key  # pragma: allowlist secret
+      ANTHROPIC_API_KEY: sk-ant-test  # pragma: allowlist secret
+      OPENAI_API_KEY: sk-test  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -144,9 +144,9 @@ jobs:
       contents: write
     env:
       DATABASE_URL: sqlite:///./test.db
-      LOOMI_API_KEY: test-key
-      ANTHROPIC_API_KEY: sk-ant-test
-      OPENAI_API_KEY: sk-test
+      LOOMI_API_KEY: test-key  # pragma: allowlist secret
+      ANTHROPIC_API_KEY: sk-ant-test  # pragma: allowlist secret
+      OPENAI_API_KEY: sk-test  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@v4
         with:

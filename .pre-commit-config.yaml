@@ -11,6 +11,7 @@ repos:
     hooks:
       - id: mypy
         args: [--ignore-missing-imports, --no-strict-optional]
+        exclude: "^alembic/"
         additional_dependencies: [types-requests, types-psycopg2]
 
   - repo: https://github.com/Yelp/detect-secrets
