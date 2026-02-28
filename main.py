@@ -26,9 +26,9 @@ try:
 except ImportError:
     pass  # Railway sets env vars natively
 
-from config import API_KEY
-from db import init_db
-from routers import employees, exceptions, export, health, ingest
+from config import API_KEY  # noqa: E402
+from db import init_db  # noqa: E402
+from routers import employees, exceptions, export, health, ingest  # noqa: E402
 
 logger = logging.getLogger("hr.startup")
 
@@ -36,7 +36,7 @@ logger = logging.getLogger("hr.startup")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not API_KEY:
-        logger.warning("HR_API_KEY not set — all requests will be rejected")
+        logger.warning("LOOMI_API_KEY not set -- all requests will be rejected")
     init_db()
     yield
 
@@ -45,7 +45,11 @@ app = FastAPI(title="Employee HR Service", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://app.appsmith.com"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "https://employee-hr-staging-production.up.railway.app",
+    ],
     allow_methods=["GET", "POST"],
     allow_headers=["X-API-Key", "Content-Type"],
 )

@@ -1,0 +1,8 @@
+# Nixpacks build configuration for employee-hr.
+# Sets up .netrc so pip can git-clone the private loomi-auth package
+# from Mister-ams/packages using the LOOMI_GITHUB_PAT build variable.
+
+[phases.setup]
+cmds = [
+    "echo \"machine github.com login token password $LOOMI_GITHUB_PAT\" > ~/.netrc && chmod 600 ~/.netrc"
+]

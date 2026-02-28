@@ -78,6 +78,15 @@ No test files exist in this repo yet. The `pyproject.toml` sets
 `--cov-fail-under=60` which will fail with 0% coverage if pytest is run without
 tests. Test scaffolding is a separate sprint (S1G or similar).
 
+## Wave 2 -- S2D Complete
+
+- loomi_auth wired into auth.py
+- HR_API_KEY -> LOOMI_API_KEY in settings.py
+- settings.py wired into callers (config.py updated — reads LOOMI_API_KEY and OPENAI_API_KEY via settings)
+- CI workflow added (.github/workflows/ci.yml)
+- Note: loomi-auth CI install pending packages GitHub remote
+- Note: ANTHROPIC_API_KEY confirmed in env (not in source) — YES (no sk-ant- keys found in source; OPENAI_API_KEY is the LLM key in use; ANTHROPIC_API_KEY added to settings.py as a reserved field)
+
 ## Known gaps
 
 - `settings.py` is created but not yet imported by `main.py` or `config.py`.

@@ -4,7 +4,7 @@ import csv
 import io
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from auth import require_api_key
@@ -51,7 +51,7 @@ def _enrich(rows: list[dict]) -> list[dict]:
 
 
 @router.get("", tags=["export"])
-def export_csv(_: str = Depends(require_api_key)):
+def export_csv(_: str = require_api_key):
     """Stream all employees as a CSV file with days_until_expiry and expiry_flag columns."""
     rows = _enrich(fetch_all_employees())
 

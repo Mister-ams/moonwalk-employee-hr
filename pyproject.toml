@@ -6,6 +6,7 @@ dependencies = [
     "fastapi[standard]>=0.115",
     "uvicorn[standard]>=0.32",
     "alembic>=1.13",
+    "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
     "pydantic-settings>=2.0",
     "structlog>=24.0",
@@ -15,6 +16,7 @@ dependencies = [
     "pymupdf>=1.24",
     "python-dotenv>=1.0",
     "openai>=1.0",
+    "loomi-auth @ git+https://github.com/Mister-ams/packages.git#subdirectory=loomi-auth-py",
 ]
 
 [project.optional-dependencies]
@@ -29,9 +31,13 @@ dev = [
     "types-psycopg2",
 ]
 
+[tool.setuptools]
+packages = ["routers"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+exclude = ["alembic/", ".venv/", "__pycache__/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -43,3 +49,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--cov=. --cov-report=term-missing --cov-fail-under=60 --ignore=alembic"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = ["parse_contract.py", "ingest_contract.py", "export_employees.py", "ingest_folder.py", "debug_text.txt"]

@@ -73,11 +73,7 @@ def ingest_folder(folder: Path, partials_out: Path) -> dict:
                     "source_file": pdf.name,
                     "confidence": 0.0,
                     "error": str(exc),
-                    **{
-                        f: None
-                        for f in _PARTIAL_FIELDS
-                        if f not in ("source_file", "confidence", "error")
-                    },
+                    **{f: None for f in _PARTIAL_FIELDS if f not in ("source_file", "confidence", "error")},
                 }
             )
             continue
@@ -88,9 +84,7 @@ def ingest_folder(folder: Path, partials_out: Path) -> dict:
 
         employee_id = upsert_employee(fields, str(pdf), min_field_score, scores)
 
-        needs_review = [
-            f for f, s in scores.items() if f != "insurance_status" and s < 0.95
-        ]
+        needs_review = [f for f, s in scores.items() if f != "insurance_status" and s < 0.95]
 
         if needs_review:
             tag = f"PARTIAL ({len(needs_review)} field(s) need review)"
@@ -117,9 +111,7 @@ def ingest_folder(folder: Path, partials_out: Path) -> dict:
 
     if partial_rows:
         with open(partials_out, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=_PARTIAL_FIELDS, extrasaction="ignore"
-            )
+            writer = csv.DictWriter(f, fieldnames=_PARTIAL_FIELDS, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(partial_rows)
         print(f"\nPartial records written to: {partials_out}")

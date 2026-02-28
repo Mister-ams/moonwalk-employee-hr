@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     DATABASE_URL: str = ""
-    HR_API_KEY: str = ""  # used to protect admin endpoints
+    LOOMI_API_KEY: str = ""  # used to protect admin endpoints (formerly HR_API_KEY)
     OPENAI_API_KEY: str = ""  # used by LLM parser
+    ANTHROPIC_API_KEY: str = ""  # reserved for future Anthropic model usage
 
     CORS_ORIGINS: str = "https://app.appsmith.com"
 

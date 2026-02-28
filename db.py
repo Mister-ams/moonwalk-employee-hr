@@ -7,7 +7,7 @@ Connection: DATABASE_URL env var (Railway injects this automatically).
 
 import json
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 
 import psycopg2
 import psycopg2.extras
@@ -85,7 +85,7 @@ def upsert_employee(
     Deduplication key: passport_number or mohre_transaction_no.
     Returns the employee_id assigned.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
     scores_json = json.dumps(field_scores)
 
     with _get_conn() as conn:
@@ -170,9 +170,7 @@ def fetch_employee(employee_id: str) -> dict | None:
     """Return a single employee by employee_id, or None if not found."""
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                "SELECT * FROM employees WHERE employee_id = %s", (employee_id,)
-            )
+            cur.execute("SELECT * FROM employees WHERE employee_id = %s", (employee_id,))
             row = cur.fetchone()
             return dict(row) if row else None
 

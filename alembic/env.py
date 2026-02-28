@@ -1,7 +1,7 @@
 import os
 import logging
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 from alembic import context
 
 config = context.config
@@ -10,34 +10,36 @@ if config.config_file_name is not None:
 
 logger = logging.getLogger("alembic.env")
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+# Strip any existing search_path query param to avoid configparser % interpolation
+# errors, then set search_path via connect_args in run_migrations_online().
+_raw_url = os.environ.get("DATABASE_URL", "")
+DATABASE_URL = _raw_url.split("?")[0] if "?" in _raw_url else _raw_url
+
 if DATABASE_URL:
-    # Add hr search_path for loomi-db. Local dev (public schema) omits this.
-    if "loomi" in DATABASE_URL or "search_path" not in DATABASE_URL:
-        if "?" in DATABASE_URL:
-            DATABASE_URL += "&options=-csearch_path%3Dhr"
-        else:
-            DATABASE_URL += "?options=-csearch_path%3Dhr"
-    config.set_main_option("sqlalchemy.url", DATABASE_URL)
+    # Escape % for configparser in case the raw URL contains percent-encoded chars.
+    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 target_metadata = None
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
-    if not url:
+    if not DATABASE_URL:
         logger.warning("No DATABASE_URL set -- skipping offline migration")
         return
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    context.configure(url=DATABASE_URL, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    if not DATABASE_URL:
+        logger.warning("No DATABASE_URL set -- skipping online migration")
+        return
+    # Set search_path=hr via connect_args so all unqualified DDL lands in hr schema.
+    connectable = create_engine(
+        DATABASE_URL,
         poolclass=pool.NullPool,
+        connect_args={"options": "-csearch_path=hr"},
     )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

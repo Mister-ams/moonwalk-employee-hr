@@ -383,9 +383,7 @@ _LLM_FIELD_DEFS = {
 _MIN_DOC_CHARS = 100
 
 
-def _llm_vision_extract_fields(
-    file_path: Path, missing_fields: list[str]
-) -> dict[str, tuple[str | None, float]]:
+def _llm_vision_extract_fields(file_path: Path, missing_fields: list[str]) -> dict[str, tuple[str | None, float]]:
     """
     GPT-4o-mini vision fallback for fully scanned PDFs where text extraction yielded
     too little text. Renders each page as a PNG and sends to the vision API.
@@ -393,21 +391,13 @@ def _llm_vision_extract_fields(
     Also returns {"_doc_type": ("employment_contract"|"job_offer"|"unknown", 1.0)}.
     Returns {} silently if OpenAI/PyMuPDF is unavailable or the API call fails.
     """
-    if (
-        not _OPENAI_AVAILABLE
-        or not OPENAI_API_KEY
-        or not PYMUPDF_AVAILABLE
-        or not missing_fields
-    ):
+    if not _OPENAI_AVAILABLE or not OPENAI_API_KEY or not PYMUPDF_AVAILABLE or not missing_fields:
         return {}
 
     try:
         doc = fitz.open(str(file_path))
         try:
-            images_b64 = [
-                base64.b64encode(page.get_pixmap(dpi=150).tobytes("png")).decode()
-                for page in doc
-            ]
+            images_b64 = [base64.b64encode(page.get_pixmap(dpi=150).tobytes("png")).decode() for page in doc]
         finally:
             doc.close()
     except Exception:
@@ -416,9 +406,7 @@ def _llm_vision_extract_fields(
     if not images_b64:
         return {}
 
-    fields_spec = "\n".join(
-        f"- {f}: {_LLM_FIELD_DEFS[f]}" for f in missing_fields if f in _LLM_FIELD_DEFS
-    )
+    fields_spec = "\n".join(f"- {f}: {_LLM_FIELD_DEFS[f]}" for f in missing_fields if f in _LLM_FIELD_DEFS)
     if not fields_spec:
         return {}
 
@@ -472,7 +460,7 @@ def _llm_vision_extract_fields(
                 results[field] = (None, 0.0)
         elif field in DECIMAL_FIELDS:
             try:
-                results[field] = (float(val), 0.80)
+                results[field] = (float(val), 0.80)  # type: ignore[assignment]
             except (ValueError, TypeError):
                 results[field] = (None, 0.0)
         else:
@@ -481,9 +469,7 @@ def _llm_vision_extract_fields(
     return results
 
 
-def _llm_extract_fields(
-    text: str, missing_fields: list[str]
-) -> dict[str, tuple[str | None, float]]:
+def _llm_extract_fields(text: str, missing_fields: list[str]) -> dict[str, tuple[str | None, float]]:
     """
     OpenAI GPT-4o-mini fallback for fields that regex missed.
     Called once per document with all 0.0-scored fields batched into a single request.
@@ -493,9 +479,7 @@ def _llm_extract_fields(
     if not _OPENAI_AVAILABLE or not OPENAI_API_KEY or not missing_fields:
         return {}
 
-    fields_to_extract = "\n".join(
-        f"- {f}: {_LLM_FIELD_DEFS[f]}" for f in missing_fields if f in _LLM_FIELD_DEFS
-    )
+    fields_to_extract = "\n".join(f"- {f}: {_LLM_FIELD_DEFS[f]}" for f in missing_fields if f in _LLM_FIELD_DEFS)
     if not fields_to_extract:
         return {}
 
@@ -532,7 +516,7 @@ def _llm_extract_fields(
                 results[field] = (None, 0.0)
         elif field in DECIMAL_FIELDS:
             try:
-                results[field] = (float(val), 0.85)
+                results[field] = (float(val), 0.85)  # type: ignore[assignment]
             except (ValueError, TypeError):
                 results[field] = (None, 0.0)
         else:
@@ -558,7 +542,7 @@ def _match_field(field: str, text: str) -> tuple[str | None, float]:
                     continue
             elif field in DECIMAL_FIELDS:
                 try:
-                    return float(raw), 1.0
+                    return float(raw), 1.0  # type: ignore[return-value]
                 except ValueError:
                     continue
             else:
@@ -606,11 +590,7 @@ def parse_contract(file_path: Path) -> dict:
     # Route to vision extraction when the full document has too little text (scanned PDF).
     missing = [f for f in PATTERNS if scores[f] == 0.0]
     if missing:
-        if (
-            len(text.strip()) < _MIN_DOC_CHARS
-            and PYMUPDF_AVAILABLE
-            and _OPENAI_AVAILABLE
-        ):
+        if len(text.strip()) < _MIN_DOC_CHARS and PYMUPDF_AVAILABLE and _OPENAI_AVAILABLE:
             # Scanned PDF: render pages as images and extract via GPT-4o-mini vision
             vision_results = _llm_vision_extract_fields(file_path, missing)
             extracted_doc_type = vision_results.pop("_doc_type", None)
