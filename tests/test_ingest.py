@@ -2,8 +2,8 @@
 
 import io
 
-from tests.conftest import AUTH
 from routers.ingest import _build_needs_review
+from tests.conftest import AUTH
 
 
 def test_build_needs_review_empty_when_all_high():
