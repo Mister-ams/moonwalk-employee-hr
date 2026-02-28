@@ -1,7 +1,5 @@
 """Tests for /health endpoint."""
 
-from tests.conftest import AUTH
-
 
 def test_health_returns_ok(client):
     r = client.get("/health")

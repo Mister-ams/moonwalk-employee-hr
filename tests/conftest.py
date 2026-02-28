@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Must be set before importing app modules
-os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/testdb")
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/testdb")  # pragma: allowlist secret
 os.environ.setdefault("LOOMI_API_KEY", "test-key")
 os.environ.setdefault("OPENAI_API_KEY", "sk-test")
 

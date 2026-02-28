@@ -9,7 +9,7 @@ _EMPLOYEE = {
     "full_name": "Ahmed Al-Rashid",
     "nationality": "UAE",
     "date_of_birth": "1990-01-01",
-    "passport_number": "A12345678",
+    "passport_number": "A12345678",  # pragma: allowlist secret
     "job_title": "Engineer",
     "base_salary": 10000,
     "total_salary": 12000,
