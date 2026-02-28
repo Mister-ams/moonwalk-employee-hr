@@ -56,4 +56,4 @@ def test_get_employee_not_found(client):
 def test_list_employees_requires_auth(client):
     with patch("routers.employees.fetch_all_employees", return_value=[]):
         r = client.get("/employees")
-    assert r.status_code == 403
+    assert r.status_code == 401

@@ -1,5 +1,8 @@
 """Tests for ingest helper functions."""
 
+import io
+
+from tests.conftest import AUTH
 from routers.ingest import _build_needs_review
 
 
@@ -40,23 +43,16 @@ def test_build_needs_review_action_spot_check():
 
 
 def test_ingest_rejects_non_pdf(client):
-    import io
-    from tests.conftest import AUTH
-
     data = {"file": ("test.txt", io.BytesIO(b"not a pdf"), "text/plain")}
     r = client.post("/ingest", headers=AUTH, files=data)
     assert r.status_code == 400
 
 
 def test_ingest_base64_rejects_non_pdf(client):
-    from tests.conftest import AUTH
-
     r = client.post("/ingest/base64", headers=AUTH, json={"filename": "x.txt", "data": "dGVzdA=="})
     assert r.status_code == 400
 
 
 def test_ingest_base64_rejects_invalid_base64(client):
-    from tests.conftest import AUTH
-
     r = client.post("/ingest/base64", headers=AUTH, json={"filename": "x.pdf", "data": "!!!invalid!!!"})
     assert r.status_code == 400
