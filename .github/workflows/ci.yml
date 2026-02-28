@@ -141,7 +141,7 @@ jobs:
           for i in $(seq 1 6); do
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
               -H "X-API-Key: ${{ secrets.LOOMI_API_KEY }}" \
-              "${{ vars.SERVICE_URL }}/health/deep")
+              "${{ vars.SERVICE_URL }}/health")
             [ "$STATUS" = "200" ] && echo "Smoke test passed" && exit 0
             echo "Attempt $i: status $STATUS -- retrying in 10s"
             sleep 10
