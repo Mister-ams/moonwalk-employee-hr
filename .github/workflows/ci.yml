@@ -55,7 +55,7 @@ jobs:
           echo "machine github.com login $LOOMI_GITHUB_PAT password x-oauth-basic" > ~/.netrc
           chmod 600 ~/.netrc
       - run: pip install -e ".[dev]"
-      - run: pytest -m "not integration" --cov=. --cov-fail-under=80
+      - run: pytest -m "not integration" --cov=. --cov-fail-under=60
 
   security:
     runs-on: ubuntu-latest

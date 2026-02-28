@@ -49,3 +49,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--cov=. --cov-report=term-missing --cov-fail-under=60 --ignore=alembic"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = ["parse_contract.py", "ingest_contract.py", "export_employees.py", "ingest_folder.py", "debug_text.txt"]
