@@ -140,11 +140,8 @@ Start: Procfile -> uvicorn main:app --host 0.0.0.0 --port $PORT
 
 ## Current State
 
-- **Sprint 1 POC Tick — COMPLETED 2026-02-21**: parser + SQLite storage working. Frank Ssebaggala (EID-1001), confidence 1.00.
-- **Sprint 2 Local Operations Tick — COMPLETED 2026-02-21**: `ingest_folder.py`, `export_employees.py`, FastAPI (health/employees/ingest/export), Railway config (Procfile, requirements.txt, config.py, auth.py, .env.example).
-- **Sprint 2B Appsmith Portal Bootstrap — COMPLETED 2026-02-22**: HR Portal live at `https://app.appsmith.com/app/hr-portal/page1-699a032d2267980abdf9034d`. 4 queries wired (GetEmployees/GetEmployee/IngestPDF/ExportCSV), EmployeeTable + FilePicker + Upload Contract + Download CSV buttons. `/ingest/base64` endpoint added for Appsmith upload compatibility. Setup guide: `appsmith/hr-portal-setup.md`.
-- **Parser hardening — commit `5db2374` (2026-02-23)**: PyMuPDF added as primary extractor, Tesseract OCR wired for scanned pages, PATTERNS refactored to prioritized list per field. Validated against 3 real contracts: Frank 10/10 (confidence 1.0), Adil 10/10 (confidence 1.0, OCR used for scanned salary page), Altahir 8/10 (confidence 0.0 — Job Offer format lacks contract dates, routes to exception queue correctly).
-- **Per-field review — commit `bbdd211` (2026-02-24)**: `confidence` → `min_field_score` throughout (floor of per-field scores, not a doc-level gate). `_build_needs_review` now includes `current_value` per flagged field. API response adds `field_scores` dict. Documents always stored; only individual low-confidence fields flagged.
-- **Railway verified (2026-02-24)**: All 3 contracts return 201. Frank: 10/10 score 1.0. Altahir: 10/10 score 0.8 via LLM vision. Adil: 8/10 score 0.0 (salary fields null — scanned page, no Tesseract on Railway, correctly flagged `enter_manually`).
-- **Tests**: 0 (no test suite yet — Sprint 4 mandates ≥80% coverage)
-- **Next**: Sprint 2C (portal UX brainstorm, mobile-first layout design) → Sprint 3 MVP
+- **Latest commit**: 7dfe74c (master)
+- **CI**: all 7 gate jobs GREEN; smoke test passes (/health endpoint)
+- **Deploy**: GREEN — Railway CLI working, service moonwalk-employee-hr (ID 1b47545c)
+- **LOOMI OS Phase 1 live on master**: loomi_auth wired, loomi-db CI, GitHub Actions deploy
+- **Next**: Monitor Railway deploy logs; plan Sprint 2C UX
