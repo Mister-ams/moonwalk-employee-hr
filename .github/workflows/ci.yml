@@ -210,3 +210,29 @@ jobs:
           git add openapi.json CHANGELOG.md
           git diff --staged --quiet || git commit -m "docs: update openapi.json and CHANGELOG [skip ci]"
           git push
+
+  semgrep:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install semgrep
+      - run: |
+          semgrep \
+            --config p/fastapi \
+            --config p/sqlalchemy \
+            --config p/jwt \
+            --config p/secrets \
+            --error \
+            --json \
+            --output semgrep-results.json \
+            . || true
+      - name: Upload Semgrep results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.json
